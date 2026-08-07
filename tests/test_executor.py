@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 from omegaconf import OmegaConf
 
-from zotero_arxiv_daily.executor import Executor, normalize_path_patterns
+from zotero_arxiv_daily.executor import Executor, normalize_path_patterns, normalize_schedule_weekdays
 from zotero_arxiv_daily.protocol import CorpusPaper
 
 
@@ -43,6 +43,16 @@ def test_normalize_path_patterns_accepts_empty_list():
 
 def test_normalize_path_patterns_accepts_none():
     assert normalize_path_patterns(None, "include_path") is None
+
+
+def test_normalize_schedule_weekdays_accepts_aliases():
+    weekdays = OmegaConf.create(["mon", "Friday", "sun"])
+    assert normalize_schedule_weekdays(weekdays, "subjournal") == {0, 4, 6}
+
+
+def test_normalize_schedule_weekdays_rejects_bad_value():
+    with pytest.raises(ValueError, match="unknown weekday"):
+        normalize_schedule_weekdays(["funday"], "subjournal")
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +107,102 @@ def test_filter_corpus_no_filters_returns_all():
     ]
     filtered = executor.filter_corpus(corpus)
     assert filtered == corpus
+
+
+def test_should_run_source_today_without_schedule(config):
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    assert executor.should_run_source_today("arxiv", now=datetime(2026, 8, 7, 9, 0))
+
+
+def test_should_run_source_today_honors_timezone_and_weekday(config):
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    from omegaconf import open_dict
+
+    with open_dict(config.source):
+        config.source.subjournal = {
+            "journals": ["Nature Methods"],
+            "schedule": {"weekdays": ["mon"], "timezone": "Asia/Shanghai"},
+        }
+
+    monday_utc = datetime.fromisoformat("2026-08-09T22:30:00+00:00")
+    tuesday_utc = datetime.fromisoformat("2026-08-10T22:30:00+00:00")
+
+    assert executor.should_run_source_today("subjournal", now=monday_utc)
+    assert not executor.should_run_source_today("subjournal", now=tuesday_utc)
+
+
+def test_should_run_source_today_rejects_bad_timezone(config):
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    from omegaconf import open_dict
+
+    with open_dict(config.source):
+        config.source.subjournal = {
+            "journals": ["Nature Methods"],
+            "schedule": {"weekdays": ["mon"], "timezone": "Mars/Olympus"},
+        }
+
+    with pytest.raises(ValueError, match="valid IANA timezone"):
+        executor.should_run_source_today("subjournal", now=datetime.fromisoformat("2026-08-09T22:30:00+00:00"))
+
+
+def test_run_skips_unscheduled_source(config, monkeypatch):
+    import smtplib
+    from omegaconf import open_dict
+    from tests.canned_responses import make_stub_openai_client, make_stub_smtp, make_stub_zotero_client
+
+    with open_dict(config):
+        config.executor.source = ["arxiv", "subjournal"]
+        config.executor.reranker = "api"
+        config.executor.send_empty = False
+        config.source.subjournal = {
+            "journals": ["Nature Methods"],
+            "schedule": {"weekdays": ["mon"], "timezone": "Asia/Shanghai"},
+        }
+
+    stub_zot = make_stub_zotero_client()
+    monkeypatch.setattr("zotero_arxiv_daily.executor.zotero.Zotero", lambda *a, **kw: stub_zot)
+
+    stub_client = make_stub_openai_client()
+    monkeypatch.setattr("zotero_arxiv_daily.executor.OpenAI", lambda **kw: stub_client)
+    monkeypatch.setattr("zotero_arxiv_daily.reranker.api.OpenAI", lambda **kw: stub_client)
+
+    import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
+    import zotero_arxiv_daily.retriever.subjournal_retriever  # noqa: F401
+
+    from zotero_arxiv_daily.retriever.base import registered_retrievers
+    from zotero_arxiv_daily.executor import Executor as ExecutorClass
+
+    monkeypatch.setattr(
+        registered_retrievers["arxiv"],
+        "retrieve_papers",
+        lambda self: [],
+    )
+
+    def _fail_if_called(self):
+        raise AssertionError("subjournal retriever should have been skipped by schedule")
+
+    monkeypatch.setattr(
+        registered_retrievers["subjournal"],
+        "retrieve_papers",
+        _fail_if_called,
+    )
+    monkeypatch.setattr(
+        ExecutorClass,
+        "should_run_source_today",
+        lambda self, source, now=None: source != "subjournal",
+    )
+
+    sent = []
+    monkeypatch.setattr(smtplib, "SMTP", make_stub_smtp(sent))
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.base.sleep", lambda _: None)
+
+    executor = Executor(config)
+    executor.run()
+
+    assert sent == []
 
 
 # ---------------------------------------------------------------------------

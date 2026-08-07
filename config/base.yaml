@@ -8,15 +8,19 @@ source:
   arxiv:
     category: null # The categories of target arxiv papers. Find the abbr of your research area from [here](https://arxiv.org/category_taxonomy). Example: ["cs.AI","cs.CV","cs.LG","cs.CL"]
     include_cross_list: false # Whether to include arXiv cross-list papers in subscribed categories. Example: true
+    schedule: null # Optional source schedule. Example: {weekdays: ["mon","tue","wed","thu","fri","sat","sun"], timezone: "Asia/Shanghai"}
   biorxiv:
     category: null # The categories of target biorxiv papers. Find categories from [here](https://www.biorxiv.org/). Example: ["biochemistry","animal behavior and cognition"]
+    schedule: null # Optional source schedule. Example: {weekdays: ["mon","tue","wed","thu","fri","sat","sun"], timezone: "Asia/Shanghai"}
   medrxiv:
     category: null # The categories of target medrxiv papers. Find categories from [here](https://www.medrxiv.org/) Example: ["psychiatry and clinical psychology", "neurology"]
+    schedule: null # Optional source schedule. Example: {weekdays: ["mon"], timezone: "Asia/Shanghai"}
   subjournal:
     journals: [] # A list of journal names or journal config objects to monitor via Crossref. Example: ["Nature Methods", "PNAS"]
     days: 2 # Look back this many days, inclusive of today. Example: 2
     end_days_ago: 0 # Offset the end of the retrieval window this many days into the past. Example: 1 to exclude today and end at yesterday.
     use_europepmc: true # Query Europe PMC by DOI to enrich abstracts and biomedical metadata when available. Example: true
+    schedule: null # Optional source schedule. Example: {weekdays: ["mon"], timezone: "Asia/Shanghai"}
     mailto: null # Optional contact email used in the Crossref polite pool user agent. Defaults to email.sender when null.
     user_agent: zotero-arxiv-daily/1.0 # Base user agent string for Crossref and Europe PMC requests.
     rows_per_query: 100 # Maximum Crossref records to fetch for each journal query.
