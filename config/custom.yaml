@@ -20,7 +20,31 @@ llm:
 source:
   arxiv:
     category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
+  subjournal:
+    journals:
+      - "Nature Biotechnology"
+      - "Nature Chemical Biology"
+      - "Nature Methods"
+      - "Nature Machine Intelligence"
+      - "Nature Computational Science"
+      - "Nature Communications"
+      - "Cell Chemical Biology"
+      - "Cell Reports Methods"
+      - "Science Advances"
+      - "PNAS"
+      - "Journal of the American Chemical Society"
+      - "JACS Au"
+      - "ACS Central Science"
+      - "ACS Chemical Biology"
+      - "Journal of Medicinal Chemistry"
+      - "Chemical Science"
+      - "Angewandte Chemie"
+      - "Nucleic Acids Research"
+      - "Bioinformatics"
+      - "Briefings in Bioinformatics"
+    days: 2
+    use_europepmc: true
 
 executor:
   debug: ${oc.env:DEBUG,null}
-  source: ['arxiv']
+  source: ['arxiv', 'subjournal']

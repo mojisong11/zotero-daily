@@ -19,6 +19,7 @@ class Paper:
     full_text: Optional[str] = None
     tldr: Optional[str] = None
     affiliations: Optional[list[str]] = None
+    venue: Optional[str] = None
     score: Optional[float] = None
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:

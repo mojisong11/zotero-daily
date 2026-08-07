@@ -89,6 +89,15 @@ class Executor:
             logger.info(f"Selected {len(corpus)} zotero papers:\n{samples}\n...")
         return corpus
 
+    def get_max_paper_num_for_source(self, source: str) -> int:
+        if source == "arxiv":
+            return self.config.executor.max_paper_num
+
+        source_limit = self.config.executor.get(f"max_{source}_num")
+        if source_limit is None:
+            return self.config.executor.max_paper_num
+        return source_limit
+
     
     def run(self):
         corpus = self.fetch_zotero_corpus()
@@ -96,7 +105,7 @@ class Executor:
         if len(corpus) == 0:
             logger.error(f"No zotero papers found. Please check your zotero settings:\n{self.config.zotero}")
             return
-        all_papers = []
+        papers_by_source = {source: [] for source in self.retrievers}
         for source, retriever in self.retrievers.items():
             logger.info(f"Retrieving {source} papers...")
             papers = retriever.retrieve_papers()
@@ -104,21 +113,33 @@ class Executor:
                 logger.info(f"No {source} papers found")
                 continue
             logger.info(f"Retrieved {len(papers)} {source} papers")
-            all_papers.extend(papers)
-        logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
-        reranked_papers = []
-        if len(all_papers) > 0:
+            papers_by_source[source] = papers
+        total_paper_num = sum(len(papers) for papers in papers_by_source.values())
+        logger.info(f"Total {total_paper_num} papers retrieved from all sources")
+        reranked_papers_by_source = {source: [] for source in papers_by_source}
+        selected_papers = []
+        if total_paper_num > 0:
             logger.info("Reranking papers...")
-            reranked_papers = self.reranker.rerank(all_papers, corpus)
-            reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
-            logger.info("Generating TLDR and affiliations...")
-            for p in tqdm(reranked_papers):
-                p.generate_tldr(self.openai_client, self.config.llm)
-                p.generate_affiliations(self.openai_client, self.config.llm)
+            for source, papers in papers_by_source.items():
+                if len(papers) == 0:
+                    continue
+                logger.info(f"Reranking {source} papers...")
+                reranked_papers = self.reranker.rerank(papers, corpus)
+                max_paper_num = self.get_max_paper_num_for_source(source)
+                if max_paper_num != -1:
+                    reranked_papers = reranked_papers[:max_paper_num]
+                logger.info(f"Selected {len(reranked_papers)} {source} papers after reranking")
+                reranked_papers_by_source[source] = reranked_papers
+                selected_papers.extend(reranked_papers)
         elif not self.config.executor.send_empty:
             logger.info("No new papers found. No email will be sent.")
             return
+        if len(selected_papers) > 0:
+            logger.info("Generating TLDR and affiliations...")
+            for p in tqdm(selected_papers, desc="Generating paper summaries"):
+                p.generate_tldr(self.openai_client, self.config.llm)
+                p.generate_affiliations(self.openai_client, self.config.llm)
         logger.info("Sending email...")
-        email_content = render_email(reranked_papers)
+        email_content = render_email(reranked_papers_by_source)
         send_email(self.config, email_content)
         logger.info("Email sent successfully")

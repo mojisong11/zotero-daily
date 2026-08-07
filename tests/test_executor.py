@@ -281,3 +281,94 @@ def test_run_no_papers_send_empty_true(config, monkeypatch):
     assert len(sent) == 1, "Email should be sent even with no papers when send_empty=true"
     _, _, body = sent[0]
     assert "text/html" in body
+
+
+def test_run_reranks_and_truncates_each_source_separately(config, monkeypatch):
+    """Multiple sources should be ranked independently and truncated with per-source limits."""
+    import smtplib
+
+    from omegaconf import open_dict
+
+    from tests.canned_responses import make_sample_paper, make_stub_openai_client, make_stub_smtp, make_stub_zotero_client
+
+    with open_dict(config):
+        config.executor.source = ["arxiv", "biorxiv"]
+        config.executor.reranker = "api"
+        config.executor.send_empty = False
+        config.executor.max_paper_num = 1
+        config.executor.max_biorxiv_num = 2
+        config.source.biorxiv.category = ["bioinformatics"]
+
+    stub_zot = make_stub_zotero_client()
+    monkeypatch.setattr("zotero_arxiv_daily.executor.zotero.Zotero", lambda *a, **kw: stub_zot)
+
+    stub_client = make_stub_openai_client()
+    monkeypatch.setattr("zotero_arxiv_daily.executor.OpenAI", lambda **kw: stub_client)
+    monkeypatch.setattr("zotero_arxiv_daily.reranker.api.OpenAI", lambda **kw: stub_client)
+
+    import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
+    import zotero_arxiv_daily.retriever.biorxiv_retriever  # noqa: F401
+
+    from zotero_arxiv_daily.retriever.base import registered_retrievers
+    from zotero_arxiv_daily.reranker.base import registered_rerankers
+
+    monkeypatch.setattr(
+        registered_retrievers["arxiv"],
+        "retrieve_papers",
+        lambda self: [
+            make_sample_paper(title="Arxiv Paper 1", source="arxiv", score=None),
+            make_sample_paper(title="Arxiv Paper 2", source="arxiv", score=None),
+        ],
+    )
+    monkeypatch.setattr(
+        registered_retrievers["biorxiv"],
+        "retrieve_papers",
+        lambda self: [
+            make_sample_paper(
+                title="BioRxiv Paper 1",
+                source="biorxiv",
+                url="https://www.biorxiv.org/content/10.1101/2026.03.01.000001v1.full.pdf",
+                pdf_url="https://www.biorxiv.org/content/10.1101/2026.03.01.000001v1.full.pdf",
+                score=None,
+            ),
+            make_sample_paper(
+                title="BioRxiv Paper 2",
+                source="biorxiv",
+                url="https://www.biorxiv.org/content/10.1101/2026.03.01.000002v1.full.pdf",
+                pdf_url="https://www.biorxiv.org/content/10.1101/2026.03.01.000002v1.full.pdf",
+                score=None,
+            ),
+            make_sample_paper(
+                title="BioRxiv Paper 3",
+                source="biorxiv",
+                url="https://www.biorxiv.org/content/10.1101/2026.03.01.000003v1.full.pdf",
+                pdf_url="https://www.biorxiv.org/content/10.1101/2026.03.01.000003v1.full.pdf",
+                score=None,
+            ),
+        ],
+    )
+
+    def rerank_stub(self, candidates, corpus):
+        reranked = list(candidates)
+        for score, paper in zip(range(len(reranked), 0, -1), reranked):
+            paper.score = float(score + 5)
+        return reranked
+
+    monkeypatch.setattr(registered_rerankers["api"], "rerank", rerank_stub)
+
+    sent = []
+    monkeypatch.setattr(smtplib, "SMTP", make_stub_smtp(sent))
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.base.sleep", lambda _: None)
+
+    executor = Executor(config)
+    executor.run()
+
+    assert len(sent) == 1, "Email should be sent"
+    _, _, body = sent[0]
+    assert "Arxiv Papers" in body
+    assert "BioRxiv Papers" in body
+    assert "Arxiv Paper 1" in body
+    assert "Arxiv Paper 2" not in body
+    assert "BioRxiv Paper 1" in body
+    assert "BioRxiv Paper 2" in body
+    assert "BioRxiv Paper 3" not in body

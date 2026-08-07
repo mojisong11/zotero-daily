@@ -175,6 +175,7 @@ def make_sample_paper(**overrides) -> Paper:
         full_text="\\begin{document} Some text. \\end{document}",
         tldr=None,
         affiliations=None,
+        venue=None,
         score=None,
     )
     defaults.update(overrides)
