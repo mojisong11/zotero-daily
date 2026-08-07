@@ -246,9 +246,15 @@ class SubjournalRetriever(BaseRetriever):
 
     def _get_date_range(self) -> tuple[str, str]:
         days = int(self.retriever_config.get("days") or DEFAULT_DAYS)
+        end_days_ago = int(self.retriever_config.get("end_days_ago") or 0)
+        if days < 1:
+            raise ValueError("source.subjournal.days must be at least 1.")
+        if end_days_ago < 0:
+            raise ValueError("source.subjournal.end_days_ago must be non-negative.")
         today = datetime.now(timezone.utc).date()
-        start_date = today - timedelta(days=max(days - 1, 0))
-        return start_date.isoformat(), today.isoformat()
+        end_date = today - timedelta(days=end_days_ago)
+        start_date = end_date - timedelta(days=days - 1)
+        return start_date.isoformat(), end_date.isoformat()
 
     def _fetch_crossref_items(self, journal_spec: JournalSpec, start_date: str, end_date: str) -> list[dict[str, Any]]:
         rows = int(self.retriever_config.get("rows_per_query") or DEFAULT_ROWS_PER_QUERY)

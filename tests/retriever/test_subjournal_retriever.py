@@ -140,3 +140,29 @@ def test_subjournal_requires_journals(config):
         config.source.subjournal = {"journals": []}
     with pytest.raises(ValueError, match="journals must be specified"):
         SubjournalRetriever(config)
+
+
+def test_subjournal_date_range_can_exclude_today(config, monkeypatch):
+    import zotero_arxiv_daily.retriever.subjournal_retriever as subjournal_module
+    from datetime import datetime, timezone
+
+    class FixedDateTime:
+        @staticmethod
+        def now(tz=None):
+            return datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(subjournal_module, "datetime", FixedDateTime)
+
+    with open_dict(config.source):
+        config.source.subjournal = {
+            "journals": ["Nature Methods"],
+            "days": 7,
+            "end_days_ago": 1,
+            "use_europepmc": True,
+        }
+
+    retriever = SubjournalRetriever(config)
+    start_date, end_date = retriever._get_date_range()
+
+    assert start_date == "2026-08-03"
+    assert end_date == "2026-08-09"
